@@ -1,0 +1,244 @@
+-- SERVICES
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LOCAL_PLAYER = Players.LocalPlayer
+
+-- CONFIG
+local Config = {
+    HighlightEnabled = true,
+    AutoClashEnabled = true,
+    AutoBlockEnabled = true,
+    ClashRange = 7,
+    Keybinds = {
+        Highlight = Enum.KeyCode.F,
+        AutoClash = Enum.KeyCode.H,
+        AutoBlock = Enum.KeyCode.B,
+        UI = Enum.KeyCode.M
+    }
+}
+
+local WaitingRebind = nil -- "Highlight", "AutoClash", "AutoBlock"
+
+-- SAFE ANIMATIONS
+local SAFE_ANIMATIONS = {
+    ["180426354"]=true,["180435792"]=true,["180435557"]=true,["180435571"]=true,
+    ["684969250"]=true,["12246410284"]=true,["684949179"]=true,["180436148"]=true,
+    ["7950784441"]=true,["12245963642"]=true,["16398226659"]=true,["6691954521"]=true,
+    ["6768460286"]=true,["6835294179"]=true,["6835294624"]=true,["6835295587"]=true,
+    ["6835295340"]=true,["6835295768"]=true,["6843685401"]=true,["6843686183"]=true,
+    ["6843688241"]=true,["6844129816"]=true,["6844132951"]=true,["6848072990"]=true,
+    ["6857596237"]=true,["6887306042"]=true,["6887334158"]=true,["6891877544"]=true,
+    ["6910931126"]=true,["9819726292"]=true,["9819735529"]=true,["9819745648"]=true,
+    ["9819790668"]=true,["9819806597"]=true,["9819811478"]=true,["9819823356"]=true,
+    ["9819830644"]=true,["9822389499"]=true,["9825822267"]=true,["9825834442"]=true,
+    ["6846937588"]=true,["6846943217"]=true,["11116879670"]=true,["10950534442"]=true,
+    ["11116773443"]=true,["11116829154"]=true,["11116842345"]=true,["11116851650"]=true,
+    ["11116868980"]=true,["11116876082"]=true,["11116879769"]=true,["11116883670"]=true,
+    ["11116904044"]=true,["11116906510"]=true,["11116911916"]=true,["11116928049"]=true,
+    ["11116935344"]=true,["11116942197"]=true,["11116953107"]=true,
+    ["11739213999"]=true,["11739218535"]=true,["11739221487"]=true,
+    ["11824454279"]=true,["12110667126"]=true,["12110738932"]=true,
+    ["12110743424"]=true,["12119297992"]=true,["15171648575"]=true,
+    ["15434704458"]=true,["15434415778"]=true,["15434491089"]=true,
+    ["15434493570"]=true,["15744847038"]=true,["16203609238"]=true,
+    ["16294404827"]=true,["17003507450"]=true,["18357490871"]=true,
+    ["18570567181"]=true,["18570580687"]=true,["18570584513"]=true,
+    ["18570587568"]=true,["18570592488"]=true,["18570596139"]=true,
+    ["18570602813"]=true,["18570605663"]=true,["18570610312"]=true,
+    ["18570613289"]=true,["18570616732"]=true,["18570620535"]=true,
+    ["18570623746"]=true,["18570626263"]=true,["18570632470"]=true,
+    ["18570671957"]=true,["18570683512"]=true,["18570687683"]=true,
+    ["18850450498"]=true,["85696117023177"]=true,["123461108716822"]=true,
+    ["1190149394074304"]=true,["116839058176293"]=true,["752942489704875"]=true,
+    ["130879133604226"]=true,["11580787715"]=true,["6835295057"]=true,
+    ["7814305242"]=true,["119813141112551"]=true,["16205809238"]=true,
+    ["80008594862427"]=true
+}
+
+-- INPUT FUNCTIONS
+local function LMB()
+    VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,0)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,0)
+end
+
+local function RMB()
+    VirtualInputManager:SendMouseButtonEvent(0,0,1,true,game,0)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseButtonEvent(0,0,1,false,game,0)
+end
+
+local function normalizeId(id)
+    return id:match("id=(%d+)") or id:match("%d+")
+end
+
+local function inRange(target)
+    local c1, c2 = LOCAL_PLAYER.Character, target.Character
+    if not c1 or not c2 then return false end
+    local r1, r2 = c1:FindFirstChild("HumanoidRootPart"), c2:FindFirstChild("HumanoidRootPart")
+    if not r1 or not r2 then return false end
+    return (r1.Position - r2.Position).Magnitude <= Config.ClashRange
+end
+
+-- ARENA
+local function getOpponentName()
+    local arenas = workspace:FindFirstChild("Arenas")
+    if not arenas then return nil end
+    for _, arena in ipairs(arenas:GetChildren()) do
+        local info = arena:FindFirstChild("Info")
+        local active = info and info:FindFirstChild("Active")
+        if not (active and active.Value) then continue end
+        local p1 = info:FindFirstChild("P1", true)
+        local p2 = info:FindFirstChild("P2", true)
+        if not (p1 and p2) then continue end
+        if p1.Title.Text == LOCAL_PLAYER.Name then
+            return p2.Title.Text
+        elseif p2.Title.Text == LOCAL_PLAYER.Name then
+            return p1.Title.Text
+        end
+    end
+end
+
+-- CORE
+local function trigger(player)
+    if not Config.HighlightEnabled then return end
+    if getOpponentName() ~= player.Name then return end
+    if not player.Character then return end
+
+    local char = player.Character
+    if char:FindFirstChild("AttackHighlight") then
+        char.AttackHighlight:Destroy()
+    end
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "AttackHighlight"
+    hl.FillColor = Color3.fromRGB(255,255,0)
+    hl.FillTransparency = 0.45
+    hl.Parent = char
+
+    if Config.AutoBlockEnabled then
+        RMB()
+    end
+
+    if Config.AutoClashEnabled and inRange(player) then
+        LMB()
+    end
+
+    task.delay(0.7, function()
+        if hl.Parent then hl:Destroy() end
+    end)
+end
+
+local function onAnimation(player, track)
+    if player == LOCAL_PLAYER then return end
+    local id = normalizeId(track.Animation.AnimationId)
+    if not SAFE_ANIMATIONS[id] then
+        trigger(player)
+    end
+end
+
+local function trackPlayer(player)
+    local function onChar(char)
+        local humanoid = char:WaitForChild("Humanoid")
+        local animator = humanoid:WaitForChild("Animator")
+        animator.AnimationPlayed:Connect(function(track)
+            onAnimation(player, track)
+        end)
+    end
+    if player.Character then onChar(player.Character) end
+    player.CharacterAdded:Connect(onChar)
+end
+
+-- GUI
+local function createGUI()
+    local gui = Instance.new("ScreenGui", LOCAL_PLAYER.PlayerGui)
+    local frame = Instance.new("Frame", gui)
+    frame.Size = UDim2.new(0,300,0,250)
+    frame.Position = UDim2.new(0.7,0,0.5,-125)
+    frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+
+    local function makeLabel(y)
+        local l = Instance.new("TextLabel", frame)
+        l.Position = UDim2.new(0,0,0,y)
+        l.Size = UDim2.new(1,0,0,25)
+        l.BackgroundTransparency = 1
+        l.Font = Enum.Font.Gotham
+        l.TextSize = 14
+        return l
+    end
+
+    local L1 = makeLabel(10)
+    local L2 = makeLabel(40)
+    local L3 = makeLabel(70)
+
+    local function makeButton(text, y, action)
+        local b = Instance.new("TextButton", frame)
+        b.Size = UDim2.new(1,-20,0,25)
+        b.Position = UDim2.new(0,10,0,y)
+        b.BackgroundColor3 = Color3.fromRGB(50,50,50)
+        b.TextColor3 = Color3.new(1,1,1)
+        b.Font = Enum.Font.Gotham
+        b.TextSize = 14
+        b.Text = text
+
+        b.MouseButton1Click:Connect(function()
+            WaitingRebind = action
+            b.Text = "Pressione a tecla desejada"
+        end)
+
+        return b
+    end
+
+    local B1 = makeButton("Rebind Highlight", 120, "Highlight")
+    local B2 = makeButton("Rebind Auto Clash", 150, "AutoClash")
+    local B3 = makeButton("Rebind Auto Block", 180, "AutoBlock")
+
+    local function refresh()
+        L1.Text = "Highlight ("..Config.Keybinds.Highlight.Name.."): "..(Config.HighlightEnabled and "ON" or "OFF")
+        L1.TextColor3 = Config.HighlightEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+
+        L2.Text = "Auto Clash ("..Config.Keybinds.AutoClash.Name.."): "..(Config.AutoClashEnabled and "ON" or "OFF")
+        L2.TextColor3 = Config.AutoClashEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+
+        L3.Text = "Auto Block ("..Config.Keybinds.AutoBlock.Name.."): "..(Config.AutoBlockEnabled and "ON" or "OFF")
+        L3.TextColor3 = Config.AutoBlockEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+
+        B1.Text = "Rebind Highlight ("..Config.Keybinds.Highlight.Name..")"
+        B2.Text = "Rebind Auto Clash ("..Config.Keybinds.AutoClash.Name..")"
+        B3.Text = "Rebind Auto Block ("..Config.Keybinds.AutoBlock.Name..")"
+    end
+
+    refresh()
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+        if WaitingRebind then
+            Config.Keybinds[WaitingRebind] = input.KeyCode
+            WaitingRebind = nil
+            refresh()
+            return
+        end
+
+        if input.KeyCode == Config.Keybinds.Highlight then
+            Config.HighlightEnabled = not Config.HighlightEnabled
+        elseif input.KeyCode == Config.Keybinds.AutoClash then
+            Config.AutoClashEnabled = not Config.AutoClashEnabled
+        elseif input.KeyCode == Config.Keybinds.AutoBlock then
+            Config.AutoBlockEnabled = not Config.AutoBlockEnabled
+        elseif input.KeyCode == Config.Keybinds.UI then
+            frame.Visible = not frame.Visible
+        end
+        refresh()
+    end)
+end
+
+-- INIT
+createGUI()
+for _, p in ipairs(Players:GetPlayers()) do
+    trackPlayer(p)
+end
+Players.PlayerAdded:Connect(trackPlayer)
